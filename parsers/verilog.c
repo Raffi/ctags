@@ -503,6 +503,7 @@ static bool readIdentifier (tokenInfo *const token, int c)
 		token->lineNumber = getInputLineNumber ();
 		token->filePosition = getInputFilePosition ();
 	}
+	if (vStringLength (token->name) > 0) verbose ("readIdentifier: \"%s\"\n", vStringValue (token->name));
 	return (bool)(vStringLength (token->name) > 0);
 }
 
@@ -574,8 +575,9 @@ static void createContext (tokenInfo *const scope)
 	}
 }
 
-static void dropEndContext (tokenInfo *const token)
+static bool dropEndContext (tokenInfo *const token)
 {
+	bool dropped = false;
 	verbose ("current context %s; context kind %0d; nest level %0d\n", vStringValue (currentContext->name), currentContext->kind, currentContext->nestLevel);
 	vString *endTokenName = vStringNewInit("end");
 	if ((currentContext->kind == K_COVERGROUP && strcmp (vStringValue (token->name), "endgroup") == 0) ||
@@ -584,6 +586,7 @@ static void dropEndContext (tokenInfo *const token)
 	{
 		verbose ("Dropping context %s\n", vStringValue (currentContext->name));
 		currentContext = popToken (currentContext);
+		dropped = true;
 	}
 	else
 	{
@@ -592,14 +595,18 @@ static void dropEndContext (tokenInfo *const token)
 		{
 			verbose ("Dropping context %s\n", vStringValue (currentContext->name));
 			currentContext = popToken (currentContext);
+			dropped = true;
 			if (currentContext->classScope)
 			{
 				verbose ("Dropping local context %s\n", vStringValue (currentContext->name));
 				currentContext = popToken (currentContext);
+				dropped = true;
 			}
 		}
 	}
+	verbose ("endTokenName %s\n", vStringValue (endTokenName));
 	vStringDelete(endTokenName);
+	return dropped;
 }
 
 
@@ -1049,6 +1056,7 @@ static void processTypedef (tokenInfo *const token)
 	}
 
 	/* Use last identifier to create tag, but always with kind typedef */
+	verbose ("Found typedefk: %s\n", vStringValue (token->name));
 	token->kind = K_TYPEDEF;
 	createTag (token);
 }
@@ -1114,11 +1122,13 @@ static void processClass (tokenInfo *const token)
 	}
 
 	/* Use last identifier to create tag */
+	verbose ("Found ???: %s\n", vStringValue (token->name));
 	createTag (token);
 
 	/* Add parameter list */
 	while (parameters)
 	{
+		verbose ("Found parameter: %s\n", vStringValue (parameters->name));
 		createTag (parameters);
 		parameters = popToken (parameters);
 	}
@@ -1129,16 +1139,25 @@ static void tagNameList (tokenInfo* token, int c)
 	verilogKind localKind;
 	bool repeat;
 
+	verbose ("tagNameList: \"%s\"\n", vStringValue (token->name));
+
 	/* Many keywords can have bit width.
 	*   reg [3:0] net_name;
 	*   inout [(`DBUSWIDTH-1):0] databus;
 	*/
 	if (c == '(')
+	{
 		c = skipPastMatch ("()");
+	}
 	c = skipWhite (c);
-	if (c == '[')
+	while (c == '[' && c != EOF)
+	{
 		c = skipPastMatch ("[]");
-	c = skipWhite (c);
+		c = skipWhite (c);
+	}
+	//if (c == '[')
+	//	c = skipPastMatch ("[]");
+	//c = skipWhite (c);
 	if (c == '#')
 	{
 		c = vGetc ();
@@ -1159,10 +1178,40 @@ static void tagNameList (tokenInfo* token, int c)
 		{
 			readIdentifier (token, c);
 			localKind = getKindForToken (token);
+			verbose ("localKind %d, token->kind %d\n", localKind, token->kind);
 			/* Create tag in case name is not a known kind ... */
 			if (localKind == K_UNDEFINED)
 			{
-				createTag (token);
+				verbose ("Found undefined: %s\n", vStringValue (token->name));
+				if (isInputLanguage (Lang_verilog))
+				{
+					createTag (token);
+				}
+				else
+				{
+					c = skipWhite (vGetc ());
+					while (c == '[' && c != EOF)
+					{
+						c = skipPastMatch ("[]");
+						c = skipWhite (c);
+					}
+					if (c == ',' || c == ';' || c == ')')
+						createTag (token);
+					else
+					{
+						/* TODO createTag for typedef */
+						readIdentifier (token, c);
+						localKind = getKindForToken (token);
+						verbose ("localKind %d, token->kind %d\n", localKind, token->kind);
+						if (localKind == K_UNDEFINED)
+						{
+							verbose ("Found undefined: %s\n", vStringValue (token->name));
+							createTag (token);
+						}
+						else
+							break;
+					}
+				}
 			}
 			/* ... or else continue searching for names */
 			else
@@ -1212,12 +1261,16 @@ static void tagNameList (tokenInfo* token, int c)
 
 static void findTag (tokenInfo *const token)
 {
+	bool dropped = false;
+
 	verbose ("Checking token %s of kind %d\n", vStringValue (token->name), token->kind);
+	verbose ("currentContext->kind %d\n", currentContext->kind);
 
 	if (currentContext->kind != K_UNDEFINED)
 	{
 		/* Drop context, but only if an end token is found */
-		dropEndContext (token);
+		dropped = dropEndContext (token);
+		verbose ("dropEndContext token %s of kind %d,\n", vStringValue (token->name), token->kind);
 	}
 
 	if (token->kind == K_CONSTANT && vStringItem (token->name, 0) == '`')
@@ -1225,6 +1278,7 @@ static void findTag (tokenInfo *const token)
 		/* Bug #961001: Verilog compiler directives are line-based. */
 		int c = skipWhite (vGetc ());
 		readIdentifier (token, c);
+		verbose ("Found macro: %s\n", vStringValue (token->name));
 		createTag (token);
 		/* Skip the rest of the line. */
 		do {
@@ -1250,6 +1304,7 @@ static void findTag (tokenInfo *const token)
 		if (vStringLength (currentContext->blockName) > 0)
 		{
 			vStringCopy (token->name, currentContext->blockName);
+			verbose ("Found assertion: %s\n", vStringValue (token->name));
 			createTag (token);
 			skipToSemiColon ();
 		}
@@ -1288,6 +1343,7 @@ static void findTag (tokenInfo *const token)
 				c = skipWhite (vGetc ());
 				readIdentifier (token, c);
 			}
+			verbose ("Found ????: %s\n", vStringValue (token->name));
 			createTag (token);
 
 			/* Get port list if required */
@@ -1302,6 +1358,11 @@ static void findTag (tokenInfo *const token)
 			}
 		}
 	}
+	//else if (!dropped && currentContext->kind == K_MODULE)
+	//{
+	//	token->kind = K_REGISTER;
+	//	createTag (token);
+	//}
 }
 
 static void findVerilogTags (void)
