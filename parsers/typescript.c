@@ -479,40 +479,40 @@ CTAGS_INLINE void parseWordToken(const int c, tokenInfo *const token, const char
 	result->status = PARSER_FAILED;
 }
 
-CTAGS_INLINE void parseComment(const int c, tokenInfo *const token, commentState *state, parserResult *const result)
+CTAGS_INLINE void parseComment(const int c, tokenInfo *const token, parserState *state, parserResult *const result)
 {
-	if (state->parsed < 2)
+	if (state->comment.parsed < 2)
 	{
-		parseWordToken (c, token, "//", TOKEN_COMMENT_BLOCK, &state->parsed, result);
+		parseWordToken (c, token, "//", TOKEN_COMMENT_BLOCK, &state->comment.parsed, result);
 
 		if (result->status == PARSER_FAILED)
 		{
-			parseWordToken (c, token, "/*", TOKEN_COMMENT_BLOCK, &state->parsed, result);
+			parseWordToken (c, token, "/*", TOKEN_COMMENT_BLOCK, &state->comment.parsed, result);
 			if (result->status == PARSER_FINISHED)
 			{
 				result->status = PARSER_NEEDS_MORE_INPUT;
-				state->isBlock = true;
+				state->comment.isBlock = true;
 			}
 		}
 		else if (result->status == PARSER_FINISHED)
 		{
 			result->status = PARSER_NEEDS_MORE_INPUT;
-			state->isBlock = false;
+			state->comment.isBlock = false;
 		}
 
 		return;
 	}
 
-	state->parsed += 1;
+	state->comment.parsed += 1;
 
 	if (c == EOF) result->status = PARSER_FINISHED;
-	else if (state->isBlock)
+	else if (state->comment.isBlock)
 	{
-		parseWordToken (c, token, "*/", TOKEN_COMMENT_BLOCK, &state->blockParsed, result);
+		parseWordToken (c, token, "*/", TOKEN_COMMENT_BLOCK, &state->comment.blockParsed, result);
 
 		if (result->status == PARSER_FAILED)
 		{
-			state->blockParsed = c == '*' ? 1 : 0;
+			state->comment.blockParsed = c == '*' ? 1 : 0;
 			result->status = PARSER_NEEDS_MORE_INPUT;
 		}
 	}
@@ -676,24 +676,12 @@ PARSER_DEF (TypeofKeyword, parseWord, "typeof", num)
 PARSER_DEF (VarKeyword, parseWord, "var", num)
 PARSER_DEF (WhileKeyword, parseWord, "while", num)
 
-SINGLE_CHAR_PARSER_DEF (Semicolon, ';', TOKEN_SEMICOLON)
-SINGLE_CHAR_PARSER_DEF (Comma, ',', TOKEN_COMMA)
 SINGLE_CHAR_PARSER_DEF (Colon, ':', TOKEN_COLON)
 SINGLE_CHAR_PARSER_DEF (Period, '.', TOKEN_PERIOD)
 SINGLE_CHAR_PARSER_DEF (OpenCurly, '{', TOKEN_OPEN_CURLY)
-SINGLE_CHAR_PARSER_DEF (CloseCurly, '}', TOKEN_CLOSE_CURLY)
-SINGLE_CHAR_PARSER_DEF (OpenParen, '(', TOKEN_OPEN_PAREN)
-SINGLE_CHAR_PARSER_DEF (CloseParen, ')', TOKEN_CLOSE_PAREN)
-SINGLE_CHAR_PARSER_DEF (OpenSquare, '[', TOKEN_OPEN_SQUARE)
-SINGLE_CHAR_PARSER_DEF (CloseSquare, ']', TOKEN_CLOSE_SQUARE)
-SINGLE_CHAR_PARSER_DEF (EqualSign, '=', TOKEN_EQUAL_SIGN)
 SINGLE_CHAR_PARSER_DEF (Star, '*', TOKEN_STAR)
 SINGLE_CHAR_PARSER_DEF (At, '@', TOKEN_AT)
 SINGLE_CHAR_PARSER_DEF (NewLine, '\n', TOKEN_NL)
-SINGLE_CHAR_PARSER_DEF (QuestionMark, '?', TOKEN_QUESTION_MARK)
-SINGLE_CHAR_PARSER_DEF (EOF, EOF, TOKEN_EOF)
-SINGLE_CHAR_PARSER_DEF (Pipe, '|', TOKEN_PIPE)
-SINGLE_CHAR_PARSER_DEF (Ampersand, '&', TOKEN_AMPERSAND)
 
 WORD_TOKEN_PARSER_DEF (Arrow, "=>", TOKEN_ARROW)
 
@@ -741,7 +729,7 @@ CTAGS_INLINE bool tryParser(Parser parser, tokenInfo *const token, bool skipWhit
 	return result.status == PARSER_FINISHED;
 }
 
-static bool tryInSequence(tokenInfo *const token, bool skipUnparsed, ...)
+static bool tryInSequence(tokenInfo *const token, bool skipUnparsed, Parser parser, ...)
 {
 	Parser currentParser = NULL;
 	bool result = false;
@@ -749,9 +737,9 @@ static bool tryInSequence(tokenInfo *const token, bool skipUnparsed, ...)
 	tryParser (parseWhiteChars, token, false);
 
 	va_list args;
-	va_start (args, skipUnparsed);
+	va_start (args, parser);
 
-	currentParser = va_arg (args, Parser);
+	currentParser = parser;
 	while (! result && currentParser)
 	{
 		result = tryParser (currentParser, token, false);

@@ -26,18 +26,11 @@ if [ "$TARGET" = "Unix" ]; then
 
     BUILDDIR0="$TRAVIS_OS_NAME"-"$CC"
     if [ "$TRAVIS_OS_NAME" = "linux" ] && [ "$CC" = "gcc" ]; then
-
-        BUILDDIR=${BUILDDIR0}
-        mkdir -p "${BUILDDIR}"
-        (
-            cd "${BUILDDIR}"
-            ${CONFIGURE_CMDLINE}
-            make -j2
-            echo 'Run "make tmain (sandbox only)" without gcov'
-            make -j2 tmain TRAVIS=1 UNITS=${SANDBOX_CASES}
-
-            make clean
-        )
+		if ! git diff --exit-code optlib; then
+			echo "Files under optlib are not up to date."
+			echo "If you change optlib/foo.ctags, don't forget to add optlib/foo.c to your commit."
+			exit 1
+		fi
 
         BUILDDIR=${BUILDDIR0}-gcov
         mkdir -p "${BUILDDIR}"
@@ -48,17 +41,33 @@ if [ "$TARGET" = "Unix" ]; then
             echo 'List features'
             ./ctags --list-features
             echo 'Run "make check" with gcov'
-            make -j2 check roundtrip TRAVIS=1
+            make check roundtrip TRAVIS=1
 			make dist
 			tar zxvf universal-ctags*tar.gz
 			(
 				cd universal-ctags*[0-9]
-				./configure
-				make
+				BUILDDIR=${BUILDDIR0}
+				mkdir -p "${BUILDDIR}"
+				(
+					cd "${BUILDDIR}"
+					${CONFIGURE_CMDLINE}
+					make -j2
+					echo 'Run "make tmain (sandbox only)" without gcov'
+					make tmain TRAVIS=1 UNITS=${SANDBOX_CASES}
+
+					make clean
+				)
 			)
         )
 
     else
+		make -B -C man QUICK=1 update-docs
+		if ! git diff --exit-code docs/man; then
+			echo "Files under docs/man/ are not up to date."
+			echo "Please execute 'make -C man QUICK=1 update-docs' and commit them."
+			exit 1
+		fi
+
         BUILDDIR=${BUILDDIR0}
         mkdir -p "${BUILDDIR}"
         (
@@ -68,13 +77,13 @@ if [ "$TARGET" = "Unix" ]; then
             echo 'List features'
             ./ctags --list-features
             echo 'Run "make check" (without gcov)'
-            make -j2 check roundtrip TRAVIS=1
+            make check roundtrip TRAVIS=1
         )
     fi
 
 elif [ "$TARGET" = "Mingw32" ]; then
     # Don't run test units in Mingw32 target.
-    make -j2 CC=i686-w64-mingw32-gcc CC_FOR_PACKCC=gcc -f mk_mingw.mak
+    make -j2 CC=i686-w64-mingw32-gcc WINDRES=i686-w64-mingw32-windres CC_FOR_PACKCC=gcc -f mk_mingw.mak
 
 else
     echo "Invalid TARGET value: $TARGET" 1>&2

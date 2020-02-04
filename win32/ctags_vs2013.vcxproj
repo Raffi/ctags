@@ -53,6 +53,12 @@
     <CodeAnalysisRules Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" />
     <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" />
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <EmbedManifest>false</EmbedManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <EmbedManifest>false</EmbedManifest>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
@@ -174,7 +180,6 @@
     <ClCompile Include="..\parsers\cobol.c" />
     <ClCompile Include="..\parsers\cpreprocessor.c" />
     <ClCompile Include="..\parsers\css.c" />
-    <ClCompile Include="..\parsers\ctags-aspell.c" />
     <ClCompile Include="..\parsers\cxx\cxx.c" />
     <ClCompile Include="..\parsers\cxx\cxx_debug.c" />
     <ClCompile Include="..\parsers\cxx\cxx_debug_type.c" />
@@ -339,6 +344,10 @@
     <ClInclude Include="..\parsers\make.h" />
     <ClInclude Include="..\parsers\perl.h" />
     <ClInclude Include="..\parsers\tcl.h" />
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ctags.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

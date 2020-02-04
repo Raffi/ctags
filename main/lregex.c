@@ -25,6 +25,8 @@
 #endif
 #include <regex.h>
 
+#include <inttypes.h>
+
 #include "debug.h"
 #include "colprint_p.h"
 #include "entry_p.h"
@@ -476,7 +478,7 @@ static flagDefinition prePtrnFlagDef[] = {
 static void scope_ptrn_flag_eval (const char* const f  CTAGS_ATTR_UNUSED,
 				  const char* const v, void* data)
 {
-	unsigned long *bfields = data;
+	unsigned int *bfields = data;
 
 	if (strcmp (v, "ref") == 0)
 		*bfields |= SCOPE_REF;
@@ -495,7 +497,7 @@ static void scope_ptrn_flag_eval (const char* const f  CTAGS_ATTR_UNUSED,
 static void placeholder_ptrn_flag_eval (const char* const f  CTAGS_ATTR_UNUSED,
 				     const char* const v  CTAGS_ATTR_UNUSED, void* data)
 {
-	unsigned long *bfields = data;
+	unsigned int *bfields = data;
 	*bfields |= SCOPE_PLACEHOLDER;
 }
 
@@ -1644,8 +1646,10 @@ static bool fillGuestRequest (const char *start,
 		int size = pmatch [guest_spec->lang.spec.patternGroup].rm_eo
 			- pmatch [guest_spec->lang.spec.patternGroup].rm_so;
 		if (size > 0)
+		{
 			guest_req->lang = getNamedLanguage (name, size);
-		guest_req->lang_set = true;
+			guest_req->lang_set = true;
+		}
 	}
 	else if (guest_spec->lang.type == GUEST_LANG_PTN_GROUP_FOR_FILEMAP)
 	{
@@ -1657,9 +1661,9 @@ static bool fillGuestRequest (const char *start,
 		if (fname)
 		{
 			guest_req->lang = getLanguageForFilename (fname, LANG_AUTO);
+			guest_req->lang_set = true;
 			eFree (fname);
 		}
-		guest_req->lang_set = true;
 	}
 
 	for (int i = 0; i < 2; i++)
@@ -2629,8 +2633,6 @@ extern void extendRegexTable (struct lregexControlBlock *lcb, const char *src, c
 
 extern void printMultitableStatistics (struct lregexControlBlock *lcb)
 {
-	struct regexTable *table = ptrArrayItem (lcb->tables, 0);
-
 	if (ptrArrayCount(lcb->tables) == 0)
 		return;
 
@@ -2638,7 +2640,7 @@ extern void printMultitableStatistics (struct lregexControlBlock *lcb)
 	fputs("==============================================\n", stderr);
 	for (unsigned int i = 0; i < ptrArrayCount(lcb->tables); i++)
 	{
-		table = ptrArrayItem (lcb->tables, i);
+		struct regexTable *table = ptrArrayItem (lcb->tables, i);
 		fprintf(stderr, "%s\n", table->name);
 		fputs("-----------------------\n", stderr);
 		for (unsigned int j = 0; j < ptrArrayCount(table->entries); j++)
@@ -2753,10 +2755,10 @@ static void   guestRequestSubmit (struct guestRequest *r)
 {
 	const char *langName = getLanguageName (r->lang);
 	verbose ("guestRequestSubmit: %s; "
-			 "range: %ld - %ld\n",
+			 "range: %"PRId64" - %"PRId64"\n",
 			 langName,
-			 r->boundary[BOUNDARY_START].offset,
-			 r->boundary[BOUNDARY_END].offset);
+			 (int64_t)r->boundary[BOUNDARY_START].offset,
+			 (int64_t)r->boundary[BOUNDARY_END].offset);
 	makePromiseForAreaSpecifiedWithOffsets (langName,
 											r->boundary[BOUNDARY_START].offset,
 											r->boundary[BOUNDARY_END].offset);

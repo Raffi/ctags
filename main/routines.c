@@ -12,9 +12,7 @@
 */
 #include "general.h"  /* must always come first */
 
-#ifdef HAVE_STDLIB_H
-# include <stdlib.h>  /* to declare malloc (), realloc (), mbcs() */
-#endif
+#include <stdlib.h>  /* to declare malloc (), realloc (), mbcs() */
 #include <ctype.h>
 #include <string.h>
 #include <stdio.h>  /* to declare tempnam(), and SEEK_SET (hopefully) */
@@ -26,9 +24,7 @@
 # include <unistd.h>  /* to declare mkstemp () */
 #endif
 
-#ifdef HAVE_LIMITS_H
-# include <limits.h>  /* to declare MB_LEN_MAX */
-#endif
+#include <limits.h>  /* to declare MB_LEN_MAX */
 #ifndef MB_LEN_MAX
 # define MB_LEN_MAX 6
 #endif
@@ -59,9 +55,7 @@
 #include "debug.h"
 #include "routines.h"
 #include "routines_p.h"
-#ifdef HAVE_ERRNO_H
-# include <errno.h>
-#endif
+#include <errno.h>
 
 #include "vstring.h"
 
@@ -129,7 +123,9 @@
  */
 #if defined (WIN32)
 # if defined (_MSC_VER) || defined (__MINGW32__)
-#  define stat    _stat
+#  ifndef stat
+#   define stat    _stat
+#  endif
 #  define getcwd  _getcwd
 #  define currentdrive() (_getdrive() + 'A' - 1)
 # else
@@ -718,14 +714,18 @@ extern char *combinePathAndFile (
 	const char *const path, const char *const file)
 {
 	vString *const filePath = vStringNew ();
-	const int lastChar = path [strlen (path) - 1];
-	bool terminated = isPathSeparator (lastChar);
+	size_t len = strlen (path);
 
-	vStringCopyS (filePath, path);
-	if (! terminated)
-		vStringPut (filePath, OUTPUT_PATH_SEPARATOR);
+	if (len)
+	{
+		const int lastChar = path [len - 1];
+		bool terminated = isPathSeparator (lastChar);
+		vStringCopyS (filePath, path);
+		if (! terminated)
+			vStringPut (filePath, OUTPUT_PATH_SEPARATOR);
+	}
+
 	vStringCatS (filePath, file);
-
 	return vStringDeleteUnwrap (filePath);
 }
 
@@ -914,6 +914,19 @@ extern MIO *tempFile (const char *const mode, char **const pName)
 	name = xMalloc (strlen (tmpdir) + 1 + strlen (pattern) + 1, char);
 	sprintf (name, "%s%c%s", tmpdir, OUTPUT_PATH_SEPARATOR, pattern);
 	fd = mkstemp (name);
+# ifdef WIN32
+	if (fd == -1)
+	{
+		/* mkstemp() sometimes fails with unknown reasons.
+		 * Retry a few times. */
+		int i;
+		for (i = 0; i < 5 && fd == -1; i++)
+		{
+			sprintf (name, "%s%c%s", tmpdir, OUTPUT_PATH_SEPARATOR, pattern);
+			fd = mkstemp (name);
+		}
+	}
+# endif
 	eStatFree (file);
 #elif defined(HAVE_TEMPNAM)
 	const char *tmpdir = NULL;

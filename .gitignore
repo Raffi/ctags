@@ -17,6 +17,7 @@
 *.tmp
 *~
 /packcc
+/packcc.exe
 .deps
 .dirstamp
 .DS_Store
@@ -48,6 +49,7 @@ libctags.a
 Makefile
 Makefile.in
 mini-geany
+mini-geany.exe
 missing
 mkinstalldirs
 perf.data*
@@ -64,6 +66,7 @@ tags.test
 test.*.diff
 tg
 tinst-root
+win32/*.aps
 win32/*.opensdf
 win32/*.sdf
 win32/*.suo

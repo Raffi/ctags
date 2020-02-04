@@ -1225,12 +1225,9 @@ static void buildFqTagCache (tagEntryInfo *const tag)
 	getTagScopeInformation (tag, NULL, NULL);
 }
 
-static void writeTagEntry (const tagEntryInfo *const tag, bool checkingNeeded)
+static void writeTagEntry (const tagEntryInfo *const tag)
 {
 	int length = 0;
-
-	if (checkingNeeded && !isTagWritable(tag))
-		return;
 
 	Assert (tag->kindIndex != KIND_GHOST_INDEX);
 
@@ -1316,7 +1313,11 @@ extern void uncorkTagFile(void)
 	for (i = 1; i < TagFile.corkQueue.count; i++)
 	{
 		tagEntryInfo *tag = TagFile.corkQueue.queue + i;
-		writeTagEntry (tag, true);
+
+		if (!isTagWritable(tag))
+			continue;
+
+		writeTagEntry (tag);
 
 		if (doesInputLanguageRequestAutomaticFQTag ()
 		    && isXtagEnabled (XTAG_QUALIFIED_TAGS)
@@ -1381,28 +1382,6 @@ extern int makePlaceholder (const char *const name)
 	return makeTagEntry (&e);
 }
 
-static void makeTagEntriesForSubwords (tagEntryInfo *const subtag)
-{
-	stringList *list;
-
-	subtag->extensionFields.scopeIndex = CORK_NIL;
-	markTagExtraBit (subtag, XTAG_SUBWORD);
-
-	list = stringListNewBySplittingWordIntoSubwords(subtag->name);
-	for (unsigned int i = 0; i < stringListCount(list); i++)
-	{
-		vString *subword = stringListItem (list, i);
-
-		subtag->name = vStringValue(subword);
-
-		if (TagFile.cork)
-			queueTagEntry (subtag);
-		else
-			writeTagEntry (subtag, false);
-	}
-	stringListDelete (list);
-}
-
 extern int makeTagEntry (const tagEntryInfo *const tag)
 {
 	int r = CORK_NIL;
@@ -1424,15 +1403,10 @@ extern int makeTagEntry (const tagEntryInfo *const tag)
 	if (TagFile.cork)
 		r = queueTagEntry (tag);
 	else
-		writeTagEntry (tag, false);
+		writeTagEntry (tag);
 
 	notifyMakeTagEntry (tag, r);
 
-	if (isXtagEnabled (XTAG_SUBWORD))
-	{
-		tagEntryInfo subtag = *tag;
-		makeTagEntriesForSubwords (&subtag);
-	}
 out:
 	return r;
 }
@@ -1488,7 +1462,7 @@ extern int makeQualifiedTagEntry (const tagEntryInfo *const e)
 
 		bool in_subparser
 			= isTagExtraBitMarked (&x,
-								   XTAG_TAGS_GENERATED_BY_SUBPARSER);
+								   XTAG_SUBPARSER);
 
 		if (in_subparser)
 			pushLanguage(x.langType);
@@ -1538,9 +1512,9 @@ static void initTagEntryFull (tagEntryInfo *const e, const char *const name,
 		markTagExtraBit (e, XTAG_REFERENCE_TAGS);
 
 	if (doesParserRunAsGuest ())
-		markTagExtraBit (e, XTAG_TAGS_GENERATED_BY_GUEST_PARSERS);
+		markTagExtraBit (e, XTAG_GUEST);
 	if (doesSubparserRun ())
-		markTagExtraBit (e, XTAG_TAGS_GENERATED_BY_SUBPARSER);
+		markTagExtraBit (e, XTAG_SUBPARSER);
 
 	e->sourceLangType = sourceLangType;
 	e->sourceFileName = sourceFileName;
@@ -1655,6 +1629,14 @@ extern bool isTagExtraBitMarked (const tagEntryInfo *const tag, xtagType extra)
 
 	}
 	return !! ((slot [ index ]) & (1 << offset));
+}
+
+extern bool isTagExtra (const tagEntryInfo *const tag)
+{
+	for (unsigned int i = 0; i < XTAG_COUNT; i++)
+		if (isTagExtraBitMarked (tag, i))
+			return true;
+	return false;
 }
 
 static void assignRoleFull(tagEntryInfo *const e, int roleIndex, bool assign)

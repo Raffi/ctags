@@ -86,36 +86,24 @@ copy %ICONV_BUILD_DIR%\msvc10\iconv.dll %APPVEYOR_BUILD_FOLDER% > nul
 cd %APPVEYOR_BUILD_FOLDER%
 nmake -f mk_mvc.mak WITH_ICONV=yes ICONV_DIR=%ICONV_DIR% PDB=yes || exit 1
 
-:: Backup VC binaries
-mkdir vc
-move *.exe vc > nul
-
-:: Create Makefile with msys2
-path C:\%MSYS2_DIR%\usr\bin;%PATH%
-set CHERE_INVOKING=yes
-:: Install and update necessary packages
-rem bash -lc "for i in {1..3}; do pacman --noconfirm -S mingw-w64-%MSYS2_ARCH%-{python3-sphinx,jansson,libxml2,libyaml} && break || sleep 15; done"
-
-bash -lc "./autogen.sh"
-bash -lc "./configure && make -t"
-
-:: Restore VC binaries
-copy vc\*.exe . /y > nul
-touch *.exe
-
 @echo off
 goto :eof
 
 :msvc_test
 @echo on
+:: Prepare for msys2
+path C:\%MSYS2_DIR%\usr\bin;%PATH%
+set CHERE_INVOKING=yes
+
 :: Check filetype (VC binaries)
 c:\cygwin64\bin\file ctags.exe
 c:\cygwin64\bin\file readtags.exe
 :: Check if it works
 .\ctags --version || exit 1
 
-:: Run tests on msys2
-bash -lc "make check APPVEYOR=1"
+:: Run tests using misc/units.py on msys2
+bash -lc "py misc/units.py tmain ./Tmain --ctags=./ctags.exe --readtags=./readtags.exe --show-diff-output --shell=c:/msys64/usr/bin/sh" || exit 1
+bash -lc "py misc/units.py run ./Units --ctags=./ctags.exe --show-diff-output --with-timeout=10 --shell=c:/msys64/usr/bin/sh" || exit 1
 
 @echo off
 goto :eof
@@ -155,7 +143,7 @@ bash -lc "for i in {1..3}; do pacman --noconfirm --noprogressbar -S --needed min
 
 bash -lc "./autogen.sh"
 :: Use static link.
-bash -lc "./configure --enable-iconv --disable-external-sort EXTRA_CFLAGS=-DLIBXML_STATIC LDFLAGS=-static LIBS='-lz -llzma -lws2_32' && make"
+bash -lc "./configure --disable-external-sort --enable-static && make -j2"
 
 @echo off
 goto :eof
@@ -173,7 +161,7 @@ if "%normalbuild%-%ARCH%"=="yes-x64" (
   @echo Tests for msys2 x64 are skipped.
   exit 0
 )
-bash -lc "make check APPVEYOR=1"
+bash -lc "make check APPVEYOR=1 PYTHON=py"
 
 @echo off
 goto :eof
@@ -185,7 +173,6 @@ if "%normalbuild%"=="yes" (
 )
 md package
 :: Build html docs and man pages
-copy /y man\*.rst docs\man\
 bash -lc "make -C docs html && make -C man html" || exit 1
 move docs\_build\html package\docs > nul
 rd /s/q package\docs\_sources
@@ -219,7 +206,7 @@ goto :eof
 :: Using MinGW without autotools, iconv disabled
 @echo on
 path C:\MinGW\bin;C:\MinGW\msys\1.0\bin;%path%
-make -f mk_mingw.mak
+make -f mk_mingw.mak -j2
 
 @echo off
 goto :eof
@@ -244,11 +231,11 @@ goto :eof
 :: ----------------------------------------------------------------------
 :: Using Cygwin, iconv enabled
 @echo on
-c:\cygwin64\setup-x86_64.exe -qnNdO -P dos2unix,libiconv-devel
+c:\cygwin64\setup-x86_64.exe -qnNdO -P dos2unix,libiconv-devel,libjansson-devel,libxml2-devel,libyaml-devel
 PATH c:\cygwin64\bin;%PATH%
 set CHERE_INVOKING=yes
 bash -lc "./autogen.sh"
-bash -lc "./configure --enable-iconv && make"
+bash -lc "./configure && make -j2"
 
 @echo off
 goto :eof
@@ -261,7 +248,7 @@ c:\cygwin64\bin\file readtags.exe
 :: Check if it works
 .\ctags --version || exit 1
 :: Run tests
-bash -lc "make check APPVEYOR=1"
+bash -lc "make check APPVEYOR=1 PYTHON=py"
 
 @echo off
 goto :eof

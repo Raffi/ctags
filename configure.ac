@@ -8,9 +8,7 @@
 
 AC_PREREQ([2.59])
 AC_INIT([universal-ctags],[0.0.0])
-AM_INIT_AUTOMAKE([foreign subdir-objects tar-ustar])
-AM_SILENT_RULES([yes])
-AC_CONFIG_HEADERS([config.h])
+
 if ! test -e "${srcdir}/config.h.in"; then
    echo "---"
    echo "--- ${srcdir}/config.h.in WAS NOT FOUND." 1>&2
@@ -19,6 +17,17 @@ if ! test -e "${srcdir}/config.h.in"; then
    echo "---"
    exit 1
 fi
+
+# Report system info
+# ------------------
+program_name=[`grep 'PROGRAM_NAME  *"' $srcdir/main/ctags.h | sed -e 's/.*"\([^"]*\)".*/\1/'`]
+program_version=[`grep 'PROGRAM_VERSION  *"' $srcdir/main/ctags.h | sed -e 's/.*"\([^"]*\)".*/\1/'`]
+echo "$program_name, version $program_version"
+uname -mrsv 2>/dev/null
+
+AM_INIT_AUTOMAKE([foreign subdir-objects tar-ustar])
+AM_SILENT_RULES([yes])
+AC_CONFIG_HEADERS([config.h])
 
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
@@ -85,13 +94,6 @@ AH_TEMPLATE([MSDOS_STYLE_PATH],
 AH_TEMPLATE([ENABLE_GCOV],
 	[Define to 1 if gcov is instrumented.])
 
-
-# Report system info
-# ------------------
-program_name=[`grep 'PROGRAM_NAME  *"' $srcdir/main/ctags.h | sed -e 's/.*"\([^"]*\)".*/\1/'`]
-program_version=[`grep 'PROGRAM_VERSION  *"' $srcdir/main/ctags.h | sed -e 's/.*"\([^"]*\)".*/\1/'`]
-echo "$program_name, version $program_version"
-uname -mrsv 2>/dev/null
 
 # Define convenience macros
 # -------------------------
@@ -196,6 +198,10 @@ AC_ARG_ENABLE([debugging],
 	[AS_HELP_STRING([--enable-debugging],
 		[enable debugging features])])
 
+AC_ARG_ENABLE([static],
+	[AS_HELP_STRING([--enable-static],
+		[enable static linking (mainly for MinGW)])])
+
 AC_ARG_PROGRAM
 
 # Process configuration options
@@ -265,6 +271,19 @@ AM_CONDITIONAL([RUN_OPTLIB2C], [test "${perl_found}" = "yes"])
 AC_PATH_PROGS(RST2MAN, [rst2man rst2man.py rst2man3 rst2man3.py], [no])
 AM_CONDITIONAL([HAVE_RST2MAN], [test "x$RST2MAN" != "xno"])
 
+RST2MAN_OPTIONS=
+if ! test "x$RST2MAN" = "xno"; then
+   RST2MAN_SUPPORTING_SYNTAX_HIGHLIGHT_OPTION=no
+   AC_MSG_CHECKING(whether rst2mn has --syntax-highlight option)
+   if $RST2MAN --help | grep -q -e --syntax-highlight; then
+      RST2MAN_SUPPORTING_SYNTAX_HIGHLIGHT_OPTION=yes
+      dnl See man/Makefile about the option
+      RST2MAN_OPTIONS=--syntax-highlight=none
+   fi
+   AC_MSG_RESULT($RST2MAN_SUPPORTING_SYNTAX_HIGHLIGHT_OPTION)
+fi
+AC_SUBST(RST2MAN_OPTIONS)
+
 # Checks for operating environment
 # --------------------------------
 in_git_repo=no
@@ -286,6 +305,9 @@ if test "${TESTING_TIMEOUT:+set}" = "set"; then
 	have_timeout=yes
 fi
 AM_CONDITIONAL([HAVE_TIMEOUT], [test "x${have_timeout}" = "xyes"])
+
+AC_CHECK_PROGS([PYTHON],
+			   [python3 python3.8 python3.7 python3.6 python3.5 python], [])
 
 
 # Check for temporary directory
@@ -350,56 +372,21 @@ fi
 # Checks for header files
 # -----------------------
 
-AC_CHECK_HEADERS([dirent.h errno.h fcntl.h io.h limits.h stat.h stdlib.h string.h])
-AC_CHECK_HEADERS([time.h types.h unistd.h])
-AC_CHECK_HEADERS([sys/dir.h sys/stat.h sys/times.h sys/types.h sys/wait.h])
+AC_CHECK_HEADERS([direct.h dirent.h fcntl.h io.h stat.h types.h unistd.h])
+AC_CHECK_HEADERS([sys/dir.h sys/stat.h sys/types.h sys/wait.h])
 
 # Checks for header file macros
 # -----------------------------
 
 CHECK_HEADER_DEFINE(L_tmpnam, [stdio.h],, AC_DEFINE(L_tmpnam, 20))
 
-CHECK_HEADER_DEFINE(INT_MAX, [limits.h],,
-	CHECK_HEADER_DEFINE(MAXINT, [limits.h],
-		AC_DEFINE(INT_MAX, MAXINT), AC_DEFINE(INT_MAX, 32767)))
-
 
 # Checks for typedefs and types
 # -----------------------------
 
-AC_TYPE_SIZE_T
 AC_TYPE_OFF_T
 
-AC_MSG_CHECKING(for fpos_t)
-AC_EGREP_HEADER(fpos_t, stdio.h, AC_MSG_RESULT(yes),
-[
-	AC_MSG_RESULT(no)
-	AC_DEFINE(fpos_t, long)
-])
-
-AC_MSG_CHECKING(for clock_t)
-AC_EGREP_HEADER(clock_t, time.h, AC_MSG_RESULT(yes),
-[
-	AC_MSG_RESULT(no)
-	AC_DEFINE(clock_t, long)
-])
-
-AC_CHECK_HEADERS([stdbool.h],
-[
-	AH_TEMPLATE([HAVE_STDBOOL_H], [whether or not to use <stdbool.h>.])
-	AC_DEFINE([HAVE_STDBOOL_H])
-],
-[
-	AH_TEMPLATE([bool],  [type for 'bool' if <stdbool.h> is missing or broken.])
-	AH_TEMPLATE([true],  [value of 'true' if <stdbool.h> is missing or broken.])
-	AH_TEMPLATE([false], [value of 'false' if <stdbool.h> is missing or broken.])
-
-	AC_CHECK_TYPES([_Bool],
-		       [AC_DEFINE([bool], [_Bool])],
-		       [AC_DEFINE([bool], [int])])
-	AC_DEFINE([true],  [1])
-	AC_DEFINE([false], [0])
-])
+AC_CHECK_HEADERS([stdbool.h])
 
 AC_MSG_CHECKING(if "%zu" in printf works)
 AC_RUN_IFELSE([AC_LANG_SOURCE([[
@@ -440,11 +427,13 @@ AM_CONDITIONAL([USE_ULONGLONG_FORMATTER_FOR_SIZE_T], [test "x${use_ulonglong_for
 # Checks for compiler characteristics
 # -----------------------------------
 
-# AC_CYGWIN
-# AC_MINGW32
 AC_C_CONST
 AC_OBJEXT
 AC_EXEEXT
+
+if test "${enable_static}" = "yes"; then
+	LDFLAGS="$LDFLAGS -static"
+fi
 
 # Check for host type
 case "$host" in
@@ -453,6 +442,7 @@ case "$host" in
 	AC_DEFINE(MSDOS_STYLE_PATH)
 	;;
 esac
+AM_CONDITIONAL([HOST_MINGW], [test "x${host_mingw}" = "xyes"])
 
 # Check if struct stat contains st_ino.
 # MinGW has st_ino, but it doesn't work.
@@ -498,7 +488,6 @@ AC_CHECK_FUNCS(asprintf)
 AC_CHECK_FUNCS(strstr)
 AC_CHECK_FUNCS(strcasecmp stricmp, break)
 AC_CHECK_FUNCS(strncasecmp strnicmp, break)
-AC_CHECK_FUNCS(fgetpos, have_fgetpos=yes)
 
 AC_CHECK_FUNCS(mkstemp, have_mkstemp=yes)
 if test "$have_mkstemp" != yes ; then
@@ -513,9 +502,6 @@ fi
 
 AC_CHECK_FUNCS(opendir findfirst _findfirst, break)
 AC_CHECK_FUNCS(strerror)
-AC_CHECK_FUNCS(clock times, break)
-AC_CHECK_FUNCS(remove, have_remove=yes,
-	CHECK_HEADER_DEFINE(remove, unistd.h,, AC_DEFINE(remove, unlink)))
 
 AC_CHECK_FUNCS(truncate, have_truncate=yes)
 # === Cannot nest AC_CHECK_FUNCS() calls
@@ -589,6 +575,12 @@ AC_CHECK_FUNCS(scandir,have_scandir=yes)
 have_dirent_h=no
 AC_CHECK_HEADERS(dirent.h,have_dirent_h=yes)
 
+dnl Dummy check for setting $PKG_CONFIG.
+PKG_CHECK_EXISTS([dummy])
+if test "${enable_static}" = "yes"; then
+	PKG_CONFIG="$PKG_CONFIG --static"
+fi
+
 AC_ARG_ENABLE([xml],
 	[AS_HELP_STRING([--disable-xml],
 		[disable xml support])])
@@ -605,6 +597,15 @@ AS_IF([test "x$enable_xml" != "xno"], [
 			           AC_MSG_ERROR([libxml2 not found])])])
 ])
 AM_CONDITIONAL(HAVE_LIBXML, test "x$have_libxml" = xyes)
+
+if test "${enable_static}" = "yes"; then
+	if test "${have_libxml}" = "yes"; then
+		if test "${host_mingw}" = "yes"; then
+			dnl -DLIBXML_STATIC needs to be added manually.
+			LIBXML_CFLAGS="$LIBXML_CFLAGS -DLIBXML_STATIC"
+		fi
+	fi
+fi
 
 AC_ARG_ENABLE([json],
 	[AS_HELP_STRING([--disable-json],
@@ -653,36 +654,13 @@ AS_IF([test "x$enable_yaml" != "xno"], [
 ])
 AM_CONDITIONAL(HAVE_LIBYAML, test "x$have_libyaml" = xyes)
 
-AH_TEMPLATE([HAVE_ASPELL],
-	[Define this value if aspell is available.])
-AC_ARG_ENABLE([aspell],
-	[AS_HELP_STRING([--disable-aspell],
-		[disable aspell support])])
-AS_IF([test "x$enable_aspell" != "xno"], [
-	PKG_CHECK_MODULES(ASPELL, aspell,
-			       [have_aspell=yes
-			       AC_DEFINE(HAVE_ASPELL)],
-			       [AS_IF([test "x$enable_aspell" = "xyes"], [
-			           AC_MSG_ERROR([Aspell not found])])])
-])
-
 
 # Checks for missing prototypes
 # -----------------------------
 AC_MSG_NOTICE(checking for new missing prototypes)
 
-if test "$have_remove" = yes ; then
-	CHECK_PROTO(remove, stdio.h)
-else
-	CHECK_PROTO(unlink,	unistd.h)
-fi
-CHECK_PROTO(malloc,	stdlib.h)
-CHECK_PROTO(getenv,	stdlib.h)
 CHECK_PROTO(stat,	sys/stat.h)
 CHECK_PROTO(lstat,	sys/stat.h)
-if test "$have_fgetpos" = yes ; then
-	CHECK_PROTO(fgetpos, stdio.h)
-fi
 if test "$have_truncate" = yes ; then
 	CHECK_PROTO(truncate, unistd.h)
 fi
@@ -773,8 +751,6 @@ AC_CONFIG_FILES([Makefile
 		 man/ctags-incompatibilities.7.rst
 		 man/ctags-optlib.7.rst
 		 ])
-m4_include([Tmain/dist.m4])
-m4_include([Units/dist.m4])
 
 AC_OUTPUT
 

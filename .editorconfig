@@ -9,9 +9,23 @@ indent_size = 4
 indent_style = tab
 trim_trailing_whitespace = true
 
+[*.mak]
+indent_size = 8
+indent_style = tab
+trim_trailing_whitespace = true
+
 [*.rst*]
 indent_size = 4
 indent_style = tab
+trim_trailing_whitespace = true
+
+[fnmatch/*.{c,h}]
+tab_width = 8
+
+[gnu_regex/*.{c,h}]
+tab_width = 8
+
+[misc/optlib2c]
 trim_trailing_whitespace = true
 
 [win32/*]

@@ -296,7 +296,6 @@ static optionDescription LongOptionDescription [] = {
  {1,"  --kinddef-<LANG>=letter,name,desc"},
  {1,"       Define new kind for <LANG>."},
  {1,"  --kinds-<LANG>=[+|-]kinds, or"},
- {1,"  --<LANG>-kinds=[+|-]kinds"},
  {1,"       Enable/disable tag kinds for language <LANG>."},
  {1,"  --langdef=name"},
  {1,"       Define a new language to be parsed with regular expressions."},
@@ -420,7 +419,7 @@ static optionDescription LongOptionDescription [] = {
  {1,"  --totals=[yes|no|extra]"},
  {1,"       Print statistics about input and tag files [no]."},
 #ifdef WIN32
- {1,"  --use-slash-as-filename-separator"},
+ {1,"  --use-slash-as-filename-separator=[yes|no]"},
  {1,"       Use slash as filename separator [yes] for u-ctags output format."},
 #endif
  {1,"  --verbose=[yes|no]"},
@@ -446,7 +445,7 @@ static optionDescription ExperimentalLongOptionDescription [] = {
  {1,"       Echo MSG to standard error. Useful to debug the chain"},
  {1,"       of loading option files."},
  {1,"  --_extradef-<LANG>=name,desc"},
- {1,"       Define new extra for <LANG>. \"--extra-<LANG>=+{name}\" enables it."},
+ {1,"       Define new extra for <LANG>. \"--extras-<LANG>=+{name}\" enables it."},
  {1,"  --_fatal-warnings"},
  {1,"       Make all warnings fatal."},
  {1,"  --_fielddef-<LANG>=name,description"},
@@ -564,9 +563,6 @@ static struct Feature {
 #ifdef ENABLE_GCOV
 	{"gcov", "linked with code for coverage analysis"},
 #endif
-#ifdef HAVE_ASPELL
-	{"aspell", "linked with code for spell checking (internal use)"},
-#endif
 #ifdef HAVE_PACKCC
 	/* The test harnesses use this as hints for skipping test cases */
 	{"packcc", "has peg based parser(s)"},
@@ -580,7 +576,8 @@ static const char *const StageDescription [] = {
 	[OptionLoadingStageDosCnf] = "DOS .cnf file",
 	[OptionLoadingStageEtc] = "file under /etc (e.g. ctags.conf)",
 	[OptionLoadingStageLocalEtc] = "file under /usr/local/etc (e.g. ctags.conf)",
-	[OptionLoadingStageHomeRecursive] = "file(s) under HOME",
+	[OptionLoadingStageXdg] = "file(s) under $XDG_CONFIG_HOME and $HOME/.config",
+	[OptionLoadingStageHomeRecursive] = "file(s) under $HOME",
 	[OptionLoadingStageCurrentRecursive] = "file(s) under the current directory",
 	[OptionLoadingStagePreload] = "optlib preload files",
 	[OptionLoadingStageEnvVar] = "environment variable",
@@ -703,7 +700,6 @@ extern void freeList (stringList** const pList)
 }
 
 extern void setDefaultTagFileName (void)
-
 {
 	if (Option.filter || Option.interactive)
 		return;
@@ -2203,7 +2199,8 @@ static void processListRolesOptions (const char *const option CTAGS_ATTR_UNUSED,
 
 	kindspecs = sep + 1;
 	if (strncmp (parameter, "all.", 4) == 0
-	    || strncmp (parameter, "*.", 1) == 0
+		/* Handle the case if no language is specified.
+		 * This case is not documented. */
 	    || strncmp (parameter, ".", 1) == 0)
 		lang = LANG_AUTO;
 	else
@@ -3527,11 +3524,23 @@ static char* prependEnvvar (const char *path, const char* envvar)
 	char *full_path = NULL;
 
 	const char* const envval = getenv (envvar);
-	if (envval)
+	if (envval && strlen (envval))
 		full_path = combinePathAndFile(envval, path);
 
 	return full_path;
 }
+
+#ifndef WIN32
+static char *getConfigForXDG (const char *path CTAGS_ATTR_UNUSED,
+							  const char* extra CTAGS_ATTR_UNUSED)
+{
+	char *r = prependEnvvar ("ctags", "XDG_CONFIG_HOME");
+	if (r)
+		return r;
+
+	return prependEnvvar (".config/ctags", "HOME");
+}
+#endif
 
 #ifdef WIN32
 static char *getConfigAtHomeOnWindows (const char *path,
@@ -3549,9 +3558,11 @@ static char *getConfigAtHomeOnWindows (const char *path,
 		vStringCatS (windowsHome, homeDrive);
 		vStringCatS (windowsHome, homePath);
 
-		char *tmp = combinePathAndFile (vStringValue(windowsHome), path);
-		vStringDelete (windowsHome);
+		char *tmp = vStringIsEmpty (windowsHome)
+			? NULL
+			: combinePathAndFile (vStringValue(windowsHome), path);
 
+		vStringDelete (windowsHome);
 		return tmp;
 	}
 	return NULL;
@@ -3564,7 +3575,7 @@ static void preload (struct preloadPathElt *pathList)
 	stringList* loaded;
 
 	loaded = stringListNew ();
-	for (i = 0; pathList[i].path != NULL; ++i)
+	for (i = 0; pathList[i].path != NULL || pathList[i].makePath != NULL; ++i)
 	{
 		struct preloadPathElt *elt = pathList + i;
 		preloadMakePathFunc maker = elt->makePath;
@@ -3605,6 +3616,14 @@ static struct preloadPathElt preload_path_list [] = {
 		.stage = OptionLoadingStageCustom,
 	},
 #endif
+#ifndef WIN32
+	{
+		.path = NULL,
+		.isDirectory = true,
+		.makePath = getConfigForXDG,
+		.stage = OptionLoadingStageXdg,
+	},
+#endif
 	{
 		.path = ".ctags.d",
 		.isDirectory = true,
@@ -3633,7 +3652,10 @@ static struct preloadPathElt preload_path_list [] = {
 		.makePath = NULL,
 		.stage = OptionLoadingStageCurrentRecursive,
 	},
-	{ .path = NULL },
+	{
+		.path = NULL,
+		.makePath = NULL,
+	},
 };
 
 static void parseConfigurationFileOptions (void)

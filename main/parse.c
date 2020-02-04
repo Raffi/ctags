@@ -1918,22 +1918,18 @@ extern void initializeParsing (void)
 		parserDefinition* const def = (*BuiltInParsers [i]) ();
 		if (def != NULL)
 		{
-			bool accepted = false;
-			if (def->name == NULL  ||  def->name[0] == '\0')
-				error (FATAL, "parser definition must contain name\n");
-			else if (def->method & METHOD_NOT_CRAFTED)
-			{
+			Assert (def->name);
+			Assert (def->name[0] != '\0');
+			Assert (strcmp (def->name, RSV_LANG_ALL));
+			Assert (strpbrk (def->name, "!\"$%&'()*,-./:;<=>?@[\\]^`|~") == NULL);
+
+			if (def->method & METHOD_NOT_CRAFTED)
 				def->parser = findRegexTags;
-				accepted = true;
-			}
-			else if ((!def->invisible) && (((!!def->parser) + (!!def->parser2)) != 1))
-				error (FATAL,
-		"%s parser definition must define one and only one parsing routine\n",
-					   def->name);
 			else
-				accepted = true;
-			if (accepted)
-				initializeParsingCommon (def, true);
+				/* parser definition must define one and only one parsing routine */
+				Assert ((!!def->parser) + (!!def->parser2) == 1);
+
+			initializeParsingCommon (def, true);
 		}
 	}
 	verbose ("\n");
@@ -2137,54 +2133,78 @@ static parserDefinition* OptlibParser(const char *name, const char *base,
 extern void processLanguageDefineOption (
 		const char *const option, const char *const parameter)
 {
-	if (parameter [0] == '\0')
-		error (WARNING, "No language specified for \"%s\" option", option);
-	else if (getNamedLanguage (parameter, 0) != LANG_IGNORE)
-		error (WARNING, "Language \"%s\" already defined", parameter);
+	char *name;
+	char *flags;
+	parserDefinition*  def;
+
+	flags = strchr (parameter, LONG_FLAGS_OPEN);
+	if (flags)
+		name = eStrndup (parameter, flags - parameter);
 	else
+		name = eStrdup (parameter);
+
+	/* Veirfy that the name of new language is acceptable or not. */
+	char *unacceptable;
+	if (name [0] == '\0')
 	{
-		char *name;
-		char *flags;
-		parserDefinition*  def;
-
-		flags = strchr (parameter, LONG_FLAGS_OPEN);
-		if (flags)
-			name = eStrndup (parameter, flags - parameter);
-		else
-			name = eStrdup (parameter);
-
-		LanguageTable = xRealloc (LanguageTable, LanguageCount + 1, parserObject);
-		memset (LanguageTable + LanguageCount, 0, sizeof(parserObject));
-
-		struct preLangDefFlagData data = {
-			.base = NULL,
-			.direction = SUBPARSER_UNKNOWN_DIRECTION,
-			.autoFQTag = false,
-		};
-		flagsEval (flags, PreLangDefFlagDef, ARRAY_SIZE (PreLangDefFlagDef), &data);
-
-		if (data.base == NULL && data.direction != SUBPARSER_UNKNOWN_DIRECTION)
-			error (WARNING, "Ignore the direction of subparser because \"{base=}\" is not given");
-
-		if (data.base && data.direction == SUBPARSER_UNKNOWN_DIRECTION)
-			data.direction = SUBPARSER_BASE_RUNS_SUB;
-
-		def = OptlibParser (name, data.base, data.direction);
-		if (data.base)
-			eFree (data.base);
-
-		def->requestAutomaticFQTag = data.autoFQTag;
-
-		initializeParsingCommon (def, false);
-		linkDependenciesAtInitializeParsing (def);
-
-		LanguageTable [def->id].currentPatterns = stringListNew ();
-		LanguageTable [def->id].currentExtensions = stringListNew ();
-		LanguageTable [def->id].pretendingAsLanguage = LANG_IGNORE;
-		LanguageTable [def->id].pretendedAsLanguage = LANG_IGNORE;
-
 		eFree (name);
+		error (FATAL, "No language specified for \"%s\" option", option);
 	}
+	else if (getNamedLanguage (name, 0) != LANG_IGNORE)
+	{
+		/* name cannot be freed because it is used in the FATAL message. */
+		error (FATAL, "Language \"%s\" already defined", name);
+	}
+	else if (strcmp(name, RSV_LANG_ALL) == 0)
+	{
+		eFree (name);
+		error (FATAL, "\"all\" is reserved; don't use it as the name for defining a new language");
+	}
+	else if ((unacceptable = strpbrk (name, "!\"$%&'()*,-./:;<=>?@[\\]^`|~")))
+	{
+		char c = *unacceptable;
+
+		/* name cannot be freed because it is used in the FATAL message. */
+		/* We accept '_'.
+		 * We accept # and + because they are already used in C# parser and C++ parser.
+		 * {... is already trimmed at the beginning of this function. */
+		if ((c == '`') || (c == '\''))
+			error (FATAL, "don't use \"%c\" in a language name (%s)", c, name);
+		else
+			error (FATAL, "don't use `%c' in a language name (%s)", c, name);
+	}
+
+	LanguageTable = xRealloc (LanguageTable, LanguageCount + 1, parserObject);
+	memset (LanguageTable + LanguageCount, 0, sizeof(parserObject));
+
+	struct preLangDefFlagData data = {
+		.base = NULL,
+		.direction = SUBPARSER_UNKNOWN_DIRECTION,
+		.autoFQTag = false,
+	};
+	flagsEval (flags, PreLangDefFlagDef, ARRAY_SIZE (PreLangDefFlagDef), &data);
+
+	if (data.base == NULL && data.direction != SUBPARSER_UNKNOWN_DIRECTION)
+		error (WARNING, "Ignore the direction of subparser because \"{base=}\" is not given");
+
+	if (data.base && data.direction == SUBPARSER_UNKNOWN_DIRECTION)
+		data.direction = SUBPARSER_BASE_RUNS_SUB;
+
+	def = OptlibParser (name, data.base, data.direction);
+	if (data.base)
+		eFree (data.base);
+
+	def->requestAutomaticFQTag = data.autoFQTag;
+
+	initializeParsingCommon (def, false);
+	linkDependenciesAtInitializeParsing (def);
+
+	LanguageTable [def->id].currentPatterns = stringListNew ();
+	LanguageTable [def->id].currentExtensions = stringListNew ();
+	LanguageTable [def->id].pretendingAsLanguage = LANG_IGNORE;
+	LanguageTable [def->id].pretendedAsLanguage = LANG_IGNORE;
+
+	eFree (name);
 }
 
 extern bool isLanguageKindEnabled (const langType language, int kindIndex)
@@ -2640,21 +2660,26 @@ extern bool processKindsOption (
 		(strcmp (dash + 1, "kinds") == 0  ||  strcmp (dash + 1, "types") == 0))
 	{
 		size_t len = dash - option;
+		char *langName = eStrndup (option, len);
 
-		if ((len == 3) && (strncmp (option, RSV_LANG_ALL, len) == 0))
+		if ((len == 3) && (strcmp (langName, RSV_LANG_ALL) == 0))
+		{
+			error (WARNING,
+				   "\"--%s\" option is obsolete; use \"--kinds-%s\" instead",
+				   option, langName);
+			if (*parameter != '*' && *parameter != '\0')
+				error (FATAL, "only '*' is acceptable as kind letter for --%s", option);
 			foreachLanguage(processLangKindDefinitionEach, &arg);
+		}
 		else
 		{
-			language = getNamedLanguage (option, len);
+			language = getNamedLanguage (langName, 0);
 			if (language == LANG_IGNORE)
-			{
-				char *langName = eStrndup (option, len);
 				error (WARNING, "Unknown language \"%s\" in \"%s\" option", langName, option);
-				eFree (langName);
-			}
 			else
 				processLangKindDefinition (language, option, parameter);
 		}
+		eFree (langName);
 		handled = true;
 	}
 	else if ( strncmp (option, PREFIX, PREFIX_LEN) == 0 )
@@ -2665,7 +2690,14 @@ extern bool processKindsOption (
 		if (lang[0] == '\0')
 			error (WARNING, "No language given in \"%s\" option", option);
 		else if (strcmp (lang, RSV_LANG_ALL) == 0)
+		{
+			/* Though only '*' is documented as an acceptable kind spec for
+			 * --kinds-all option in our man page, we accept '\0' here because
+			 * it will be useful for testing purpose. */
+			if (*parameter != '*' && *parameter != '\0')
+				error (FATAL, "only '*' is acceptable as kind letter for --%s", option);
 			foreachLanguage(processLangKindDefinitionEach, &arg);
+		}
 		else
 		{
 			language = getNamedLanguage (lang, 0);
